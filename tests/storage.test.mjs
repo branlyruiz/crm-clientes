@@ -1,0 +1,11 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {createClientStore,DATA_KEY} from '../src/storage.ts';
+import {emptyClient} from '../src/crm.ts';
+const memory=()=>{const values=new Map();return {getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v)};};
+const client=()=>({...emptyClient(),name:'Cliente de prueba',service:'Sesión',total:100000});
+test('records survive a new store instance; payments update the persisted record',()=>{const disk=memory(),store=createClientStore(disk),saved=store.save(client());const result=store.save({...saved,initialPaid:30000});assert.equal(createClientStore(disk).list()[0].initialPaid,30000);assert.equal(result.revision,2);});
+test('stale tab save is rejected without replacing newer data',()=>{const disk=memory(),store=createClientStore(disk),a=store.save(client());store.save({...a,notes:'Nuevo acuerdo'});assert.throws(()=>store.save({...a,notes:'Anterior'}),/otra pestaña/);assert.equal(store.list()[0].notes,'Nuevo acuerdo');});
+test('import validates everything before writing and skips duplicate IDs',()=>{const disk=memory(),store=createClientStore(disk),c=client();assert.deepEqual(store.import({clients:[c,c]}),{imported:1,skipped:1});assert.throws(()=>store.import({clients:[client(),{...client(),total:-1}]}));assert.equal(store.list().length,1);});
+test('failed storage write reports failure and does not erase existing records',()=>{const disk=memory(),store=createClientStore(disk);store.save(client());disk.setItem=()=>{throw Error('quota')};assert.throws(()=>store.save(client()),/No se pudo guardar/);assert.equal(store.list().length,1);});
+test('malformed storage is reported instead of silently replaced',()=>{const disk=memory();disk.setItem(DATA_KEY,'{broken');assert.throws(()=>createClientStore(disk).list(),/respaldo local/);assert.equal(disk.getItem(DATA_KEY),'{broken');});
