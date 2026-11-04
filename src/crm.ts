@@ -40,6 +40,24 @@ export function sortClients(rows:RecordClient[], sort:string, descending=false) 
 }
 export function summary(rows:Client[], today=todayCO()) {
   const visible=rows.filter(c=>!c.archived), active=visible.filter(c=>c.state!=='Cancelado');
-  return {total:active.reduce((s,c)=>s+c.total,0),paid:active.reduce((s,c)=>s+paid(c),0),balance:active.reduce((s,c)=>s+balance(c),0),upcoming:active.filter(c=>c.date>=today&&!['Terminado','En Edición','Por entregar'].includes(c.state)).length,followups:active.filter(c=>c.nextContact&&c.nextContact<=today).length};
+  return {total:active.reduce((s,c)=>s+c.total,0),paid:active.reduce((s,c)=>s+paid(c),0),balance:active.reduce((s,c)=>s+balance(c),0),upcoming:rows.filter(c=>isUpcoming(c,today)).length,followups:active.filter(c=>c.nextContact&&c.nextContact<=today).length};
+}
+export const isUpcoming = (c:Client,today=todayCO()) => !c.archived && !!c.date && c.date>=today && !['Cancelado','Terminado'].includes(c.state);
+// Upcoming events first; past events remain accessible, followed by undated records.
+export function sortByEventProximity(rows:RecordClient[],today=todayCO()) {
+ const rank=(c:Client)=>!c.date?2:c.date>=today?0:1;
+ return [...rows].sort((a,b)=>rank(a)-rank(b) || (a.date.localeCompare(b.date)*(rank(a)===1?-1:1)) || (!a.time?(!b.time?0:1):!b.time?-1:a.time.localeCompare(b.time)) || a.name.localeCompare(b.name,'es') || a.id.localeCompare(b.id));
+}
+export function shiftMonth(month:string,offset:number){const [y,m]=month.split('-').map(Number);return new Date(Date.UTC(y,m-1+offset,1)).toISOString().slice(0,7);}
+export function monthDays(month:string){
+ const [y,m]=month.split('-').map(Number),start=new Date(Date.UTC(y,m-1,1)),offset=(start.getUTCDay()+6)%7;
+ const length=new Date(Date.UTC(y,m,0)).getUTCDate(),cells=Math.ceil((offset+length)/7)*7;
+ return Array.from({length:cells},(_,i)=>new Date(Date.UTC(y,m-1,1-offset+i)).toISOString().slice(0,10));
+}
+export function registerPayment(c:RecordClient,input:{amount:number;date:string;note:string}):RecordClient{
+ if(!Number.isSafeInteger(input.amount)||input.amount<=0||input.amount>balance(c))throw Error('El abono debe ser mayor a cero y no superar el saldo.');
+ const next={...c,payments:[...c.payments,{id:crypto.randomUUID(),...input}],history:[...c.history,{id:crypto.randomUUID(),at:new Date().toISOString(),text:'Abono registrado: '+money(input.amount)}]};
+ const valid=clientSchema.safeParse(next);if(!valid.success)throw Error(valid.error.issues[0].message);
+ return next;
 }
 export function emptyClient():RecordClient {return {id:crypto.randomUUID(),name:'',type:'Particular',category:'Fotografía',service:'',date:'',time:'',place:'',state:'Pendiente',total:0,initialPaid:0,phone:'',email:'',nextContact:'',notes:'',archived:false,payments:[],history:[],revision:0,updatedAt:new Date().toISOString()};}
