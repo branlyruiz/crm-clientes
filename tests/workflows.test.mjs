@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {emptyClient,sortByEventProximity,monthDays,shiftMonth,isUpcoming,summary,registerPayment,balance} from '../src/crm.ts';
+import {emptyClient,sortByEventProximity,monthDays,shiftMonth,isUpcoming,summary,registerPayment,balance,changeClientState,choicesWithCurrent,SERVICES,CATEGORIES} from '../src/crm.ts';
 import {createClientStore} from '../src/storage.ts';
 const c=(id,over={})=>({...emptyClient(),id,name:id,service:'Evento',...over});
 test('home prioritizes next events by date and time across states, ignoring contact dates',()=>{
@@ -39,4 +39,24 @@ test('invalid direct payments and concurrent stale payments cannot change stored
  store.save(registerPayment(saved,{amount:50000,date:'2026-11-04',note:''}));
  assert.throws(()=>store.save(registerPayment(saved,{amount:10000,date:'2026-11-04',note:''})),/otra pestaña/);
  assert.equal(balance(store.list()[0]),50000);assert.equal(store.list()[0].payments.length,1);
+});
+
+test('quick state change preserves legacy service, category and hidden contact data with one history entry',()=>{
+ const source=c('legacy',{service:'Servicio personalizado',category:'Edición',nextContact:'2026-12-01',notes:'Acuerdo anterior',total:100000,initialPaid:50000});
+ const updated=changeClientState(source,'Confirmado');
+ assert.equal(source.state,'Pendiente');assert.equal(source.history.length,0);
+ assert.equal(updated.state,'Confirmado');assert.equal(updated.history.length,1);assert.equal(updated.history[0].text,'Estado: Pendiente → Confirmado');
+ for(const key of ['service','category','nextContact','notes','total','initialPaid'])assert.equal(updated[key],source[key]);
+ assert.equal(changeClientState(updated,'Confirmado'),updated);
+ assert.ok(choicesWithCurrent(SERVICES,source.service).includes(source.service));
+ assert.ok(choicesWithCurrent(CATEGORIES,source.category).includes(source.category));
+ assert.equal(new Set(choicesWithCurrent(SERVICES,'Boda')).size,SERVICES.length);
+});
+test('a stale quick state change cannot overwrite a payment saved in another tab',()=>{
+ const values=new Map(),store=createClientStore({getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v)});
+ const saved=store.save(c('state-pay',{total:100000}));
+ store.save(registerPayment(saved,{amount:25000,date:'2026-11-04',note:''}));
+ assert.throws(()=>store.save(changeClientState(saved,'Confirmado')),/otra pestaña/);
+ const current=store.list()[0];assert.equal(current.state,'Pendiente');assert.equal(balance(current),75000);assert.equal(current.history.length,1);
+ assert.throws(()=>changeClientState(current,'Invalid state'));
 });

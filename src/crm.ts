@@ -1,5 +1,9 @@
 import { z } from 'zod';
 export const STATES = ['Pendiente', 'En Edición', 'Por entregar', 'Confirmado', 'Aplazado', 'Terminado', 'Cancelado'] as const;
+// Dropdown values from SEGUIMIENTO CLIENTES!D7:E7, checked on 2026-11-04.
+export const CATEGORIES = ['Fotografía','Video','Fotografía y Video','Cobertura Completa'] as const;
+export const SERVICES = ['Boda','15 años','Evento','Pre Sesion','Embarazo','Revelacion','Corporativo','Producto','Sponsor','Promocional','Documental','Reel','UGC','Político','Retratos','Sesion Estudio','Sesion Exterior','Campo','Otro','Bautizo'] as const;
+export const choicesWithCurrent = (options:readonly string[],current:string) => current && !options.includes(current) ? [current,...options] : [...options];
 const isoDate = z.string().refine(v => !v || /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().slice(0,10) === v, 'Fecha inválida');
 const amount = z.number().int().min(0).max(100000000000);
 export const clientSchema = z.object({
@@ -57,6 +61,12 @@ export function monthDays(month:string){
 export function registerPayment(c:RecordClient,input:{amount:number;date:string;note:string}):RecordClient{
  if(!Number.isSafeInteger(input.amount)||input.amount<=0||input.amount>balance(c))throw Error('El abono debe ser mayor a cero y no superar el saldo.');
  const next={...c,payments:[...c.payments,{id:crypto.randomUUID(),...input}],history:[...c.history,{id:crypto.randomUUID(),at:new Date().toISOString(),text:'Abono registrado: '+money(input.amount)}]};
+ const valid=clientSchema.safeParse(next);if(!valid.success)throw Error(valid.error.issues[0].message);
+ return next;
+}
+export function changeClientState(c:RecordClient,state:Client['state']):RecordClient{
+ if(c.state===state)return c;
+ const next={...c,state,history:[...c.history,{id:crypto.randomUUID(),at:new Date().toISOString(),text:'Estado: '+c.state+' → '+state}]};
  const valid=clientSchema.safeParse(next);if(!valid.success)throw Error(valid.error.issues[0].message);
  return next;
 }
